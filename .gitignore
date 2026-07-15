@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.env
+.streamlit/secrets.toml
+*.log
+.ipynb_checkpoints/
+.DS_Store
+teleserve_merged_215.zip
