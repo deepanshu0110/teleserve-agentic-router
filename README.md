@@ -6,6 +6,7 @@
 [![Streamlit](https://img.shields.io/badge/streamlit-app-FF4B4B.svg)](https://streamlit.io/)
 [![LangGraph](https://img.shields.io/badge/langgraph-1.2.8-1C3C3C.svg)](https://github.com/langchain-ai/langgraph)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+**[Live Demo → teleserve-agentic-router.streamlit.app](https://teleserve-agentic-router-tmwo3kyftn9ix8mdgaqk64.streamlit.app)** 
 
 ![Demo](docs/demo.gif)
 
