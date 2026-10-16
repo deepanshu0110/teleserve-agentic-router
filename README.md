@@ -1,6 +1,6 @@
 # TeleServe Agentic Router
 
-**A LangGraph-based support-ticket triage agent** that classifies incoming tickets with a fine-tuned DistilBERT (LoRA) model, checks a live MCP knowledge-base tool for edge cases, and routes each ticket to auto-resolution or human review — with a persistent-connection fix that cut per-call latency by ~208x.
+**A LangGraph-based support-ticket triage agent** that classifies incoming tickets with a fine-tuned DistilBERT (LoRA) model, checks a live MCP knowledge-base tool for edge cases, and routes each ticket to auto-resolution or human review. A persistent-connection fix cut the tool call from about 3.9 seconds to 68 ms per ticket.
 
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/streamlit-app-FF4B4B.svg)](https://streamlit.io/)
@@ -14,7 +14,9 @@
 
 ## Why this exists
 
-Most "chatbot" portfolio projects retrieve an answer and stop. This one makes a **decision under uncertainty**: it classifies a ticket, checks its own confidence, calls an external tool only when the ticket needs it, and hands off to a human when confidence drops below threshold — the same shape as a real support-routing system a company would actually deploy.
+Most "chatbot" portfolio projects retrieve an answer and stop. This one makes a **decision under uncertainty**: it classifies a ticket, checks its own confidence, calls an external tool only when the ticket needs it, and hands off to a human when confidence drops below threshold. That is the same shape as a real support-routing system.
+
+**Data note:** TeleServe India is a fictional telecom company. The classifier was trained on 450 synthetic tickets (150 per priority class, P1/P2/P3) generated from sentence templates, and tested on new-wording and hand-written sets described below.
 
 ## Architecture
 
@@ -37,26 +39,60 @@ Most "chatbot" portfolio projects retrieve an answer and stop. This one makes a 
                        END
 ```
 
-- **Classifier:** DistilBERT + LoRA (PEFT), merged to full precision (`merge_and_unload`) for CPU-only inference — no `bitsandbytes`/GPU dependency, so it runs on Streamlit Community Cloud and on a laptop with no discrete GPU.
+- **Classifier:** DistilBERT + LoRA (PEFT), merged to full precision (`merge_and_unload`) for CPU-only inference. No `bitsandbytes` or GPU dependency, so it runs on Streamlit Community Cloud and on a laptop with no discrete GPU.
 - **Orchestration:** LangGraph `StateGraph` with a conditional edge on `routing_decision`.
-- **Tool layer:** a custom MCP server (FastMCP) queried through a **persistent `MCPClientManager`** — a background asyncio thread holding one long-lived `StdioTransport` subprocess, reused across every call instead of respawned per call.
-- **UI:** Streamlit, single-ticket + batch CSV tabs, live display of priority / confidence / routing decision / MCP signal.
+- **Tool layer:** a custom MCP server (FastMCP) queried through a **persistent `MCPClientManager`**: a background asyncio thread holding one long-lived `StdioTransport` subprocess, reused across every call instead of respawned per call.
+- **UI:** Streamlit, single-ticket + batch CSV tabs, live display of priority, confidence, routing decision and MCP signal.
 
-## The bug that made this a real project, not a toy demo
+## Classifier evaluation: 100% on validation, 60% on new wording
 
-Early integration testing showed `auto_route` tickets consistently taking ~3.8–4.0s while `human_review` tickets returned in ~20ms. The `human_review` path skips the MCP tool entirely — so the slowdown had to be in `mcp_lookup_node`. Root cause: it was spawning a **brand-new subprocess** on every single call. Fix: a singleton `MCPClientManager`, initialized once at app start via `st.cache_resource`, holding one persistent connection for the app's lifetime.
+The headline finding of this project is a generalisation gap. Full evaluation, with classification reports and confusion matrices, is in [`day210_Evaluation_Report.ipynb`](https://github.com/deepanshu0110/Month13-Agentic-AI-Portfolio/blob/main/day210_Evaluation_Report.ipynb) in the Month 13 repo.
 
-**Measured result on an 18-ticket batch, real model + real MCP subprocess (not mocked):**
+| Test set | Size | Untrained baseline | Fine-tuned |
+|---|---|---|---|
+| Validation split (same templates as training) | 90 | 17.8% | **100.0%** |
+| New templated set (different wording pool) | 90 | 37.8% | **60.0%** |
+| Hand-written set (natural phrasing, no templates) | 30 | 36.7% | **60.0%** |
 
-| | Before (per-call spawn) | After (persistent client) |
+**Hand-written set, fine-tuned model:**
+
+| Class | Precision | Recall | Support |
+|---|---|---|---|
+| P1 (critical) | 1.00 | 0.50 | 10 |
+| P2 (moderate) | 0.75 | 0.30 | 10 |
+| P3 (low) | 0.48 | 1.00 | 10 |
+
+Confusion matrix (rows = true, columns = predicted):
+
+```
+       P1   P2   P3
+P1     5    1    4
+P2     0    3    7
+P3     0    0   10
+```
+
+**What this shows:** the model memorised the training templates rather than learning what makes a ticket urgent. On natural phrasing it falls back to P3, and it missed 5 of 10 critical P1 tickets.
+
+**Why the 0.60 threshold:** on the evaluation run, average confidence was 0.877 on correct predictions and 0.640 on incorrect ones, so low-confidence tickets go to human review.
+
+## The latency bug
+
+Early integration testing showed `auto_route` tickets taking about 3.8 to 4.0 s each, while `human_review` tickets returned in about 20 ms. The `human_review` path skips the MCP tool, so the slowdown had to be in `mcp_lookup_node`. Root cause: it spawned a **new subprocess on every call**. Fix: a singleton `MCPClientManager`, initialised once at app start via `st.cache_resource`, holding one persistent connection for the app's lifetime.
+
+**Measured on an 18-ticket batch, real model and real MCP subprocess (not mocked):**
+
+| | Before (subprocess per call) | After (persistent client) |
 |---|---|---|
-| Cold start (model load + subprocess spawn) | — | 14,242 ms (one-time) |
-| Per-call latency (warm) | ~3,800–4,000 ms | **68.4 ms avg** (range 48.7–98.5 ms) |
-| Improvement | — | **~208x** |
+| Per-call latency, auto-routed ticket | about 3,800 to 4,000 ms | **68.4 ms avg** (range 48.7 to 98.5 ms) |
+| One-time startup (model load + subprocess spawn) | not measured separately | 14,242 ms, paid once per app session |
 
-## Known limitation (not a bug)
+Caveat: the "before" figure was measured during Colab integration testing with the 4-bit model, and the "after" figure on a local CPU with the merged model. Both use real MCP calls, but the setups are not identical.
 
-On unseen phrasing, the classifier misroutes some ambiguous outage-style tickets to P2 instead of P1. The confidence-threshold gate catches these correctly — 2 of 3 such tickets were routed to `human_review` rather than auto-routed incorrectly. This is a model-accuracy ceiling, not a system defect, and it's exactly the failure mode the human-review lane exists to catch.
+## Known limitations
+
+- **Generalisation:** 60% accuracy on new wording (see evaluation above). The model has not been retrained on more varied data yet.
+- **Threshold evidence is thin:** on a separate 20-ticket test (Day 211), auto-routed tickets were classified correctly 68.75% of the time and human-review tickets 75%. Only 4 tickets went to human review, so this does not prove the threshold helps. A 50+ ticket test is needed.
+- **In the live app:** 2 of 3 outage-style tickets in the 18-ticket batch were predicted P2 instead of P1. Both had low confidence and were sent to human review rather than auto-routed.
 
 ## Tech stack
 
@@ -71,29 +107,31 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Requires a free [Groq API key](https://console.groq.com) set as `GROQ_API_KEY`.
+Requires a free [Groq API key](https://console.groq.com) set as `GROQ_API_KEY`. The model file is stored with Git LFS, so install [Git LFS](https://git-lfs.com) before cloning.
 
 ## Project structure
 
 ```
 teleserve-agentic-router/
-├── app.py                  # Streamlit UI (single-ticket + batch tabs)
-├── graph_logic.py          # LangGraph StateGraph + MCPClientManager
-├── mcp_server.py           # FastMCP tool server (Day 204)
-├── model/                  # merged full-precision DistilBERT (Day 209/215)
-├── data/sample_tickets.csv # test batch, matches training schema
+├── app.py                        # Streamlit UI (single-ticket + batch tabs)
+├── graph_logic.py                # LangGraph StateGraph + MCPClientManager
+├── day211_inference_wrapper.py   # predict_ticket_priority() on the merged model
+├── resumegap_mcp_server.py       # FastMCP tool server (Day 204)
+├── resumegap_engine.py           # matching engine used by the MCP tool
+├── check_model.py                # sanity check that the merged model loads
+├── teleserve_merged_215/         # merged full-precision DistilBERT (Git LFS)
+├── day215_test_batch.csv         # 18-ticket batch used for the latency test
 ├── docs/
-│   ├── demo.gif
-│   └── architecture.png
+│   └── demo.gif
 └── requirements.txt
 ```
 
 ## Roadmap
 
+- [ ] Retrain on more varied, non-templated tickets and re-run the Day 210 evaluation
+- [ ] Re-test the 0.60 threshold on 50+ fresh tickets
 - [ ] Swap Groq for a local Ollama model (offline fallback)
-- [ ] Add a vector-DB lookup node (Pinecone/Qdrant) alongside the MCP tool
-- [ ] Multi-agent handoff via CrewAI for tickets requiring billing + technical review
 
 ---
 
-Built as part of a structured 13-month applied AI/ML program. Related repos: [ResumeGapAI](https://resumegapai.streamlit.app) (live) · [Month12-Capstone-Portfolio](#).
+Built as part of a structured 13-month applied AI/ML program. Related: [ResumeGapAI](https://resumegapai.streamlit.app) (live) · [Month 13 portfolio](https://github.com/deepanshu0110/Month13-Agentic-AI-Portfolio) (training and evaluation notebooks).

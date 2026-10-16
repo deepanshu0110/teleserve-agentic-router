@@ -11,7 +11,7 @@
 
 ## GitHub repo settings
 
-- [ ] **Description** (shows under repo name): "LangGraph agent that classifies support tickets with a fine-tuned DistilBERT model and routes them via a persistent MCP tool client — 208x latency fix included."
+- [ ] **Description** (shows under repo name): "LangGraph agent that classifies support tickets with a fine-tuned DistilBERT model and routes them via a persistent MCP tool client, cutting tool calls from about 3.9 s to 68 ms."
 - [ ] **Topics/tags:** `langgraph` `llm-agents` `mcp` `huggingface` `streamlit` `nlp` `distilbert` `lora` `agentic-ai` `python`
 - [ ] **Social preview image:** 1280×640px — a screenshot of the routing-decision UI works; GitHub auto-generates one from the README's first image if none is set
 - [ ] **License:** MIT (add via GitHub's "Add file → LICENSE" template if not already present)

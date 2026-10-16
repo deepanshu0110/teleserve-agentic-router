@@ -5,7 +5,7 @@ Why this framing: on Upwork's 2026 category data, "AI integration"-tagged work g
 ## Profile project blurb (for Upwork/Fiverr/Malt project section)
 
 > **AI Ticket-Routing Agent — LangGraph + Fine-Tuned Classifier + MCP Tools**
-> Built an agent that classifies support tickets with a fine-tuned DistilBERT model, checks a live tool via MCP for edge cases, and routes low-confidence tickets to human review instead of guessing. Found and fixed a subprocess-respawn bug that was adding ~4s of latency per call — persistent connection pooling brought it down to ~68ms (208x). Deployed on Streamlit Cloud, fully CPU-based (no GPU dependency), so it's cheap to run and easy to hand off.
+> Built an agent that classifies support tickets with a fine-tuned DistilBERT model, checks a live tool via MCP for edge cases, and routes low-confidence tickets to human review instead of guessing. Found and fixed a subprocess-respawn bug that was adding ~4s of latency per call — a persistent connection brought it down to ~68ms per call. Deployed on Streamlit Cloud, fully CPU-based (no GPU dependency), so it's cheap to run and easy to hand off.
 
 *(487 characters — well under the 1500 cap, leaves room to tailor per client.)*
 
